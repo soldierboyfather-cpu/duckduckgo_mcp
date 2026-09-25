@@ -1,0 +1,27 @@
+# render.yaml — Render Infrastructure as Code
+# Docs: https://render.com/docs/render-yaml-spec
+
+services:
+  - type: web                          # Web service (exposes HTTP port)
+    name: duckduckgo-mcp
+    runtime: python
+    region: oregon                     # or: frankfurt, singapore, ohio, virginia
+    plan: free                         # free | starter | standard | pro
+
+    # ── Build ──────────────────────────────────────────────────
+    buildCommand: pip install -r requirements.txt
+
+    # ── Start ──────────────────────────────────────────────────
+    startCommand: python server.py     # Render injects PORT automatically
+
+    # ── Python version ─────────────────────────────────────────
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0
+
+    # ── Health check ───────────────────────────────────────────
+    # FastMCP streamable-http exposes a health endpoint at /health
+    healthCheckPath: /health
+
+    # ── Auto-deploy ────────────────────────────────────────────
+    autoDeploy: false                  # We deploy via tag + GitHub Actions only

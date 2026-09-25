@@ -1,73 +1,157 @@
 # duckduckgo_mcp
 
-A GitHub Actions workflow that auto-deploys to **Render** whenever a tag is pushed to any branch.
+A **DuckDuckGo Search MCP Server** with CI/CD — auto-deploys to **Render** whenever a version tag is pushed.
 
 ---
 
-## 🚀 How It Works
+## 🗂️ Project Structure
 
 ```
-git tag v1.0.0          →  GitHub detects tag push
-                        →  GitHub Actions workflow runs
-                        →  Render Deploy Hook is called
-                        →  Render starts deployment ✅
+├── server.py                      ← MCP server (4 tools)
+├── render.yaml                    ← Render infrastructure config
+├── requirements.txt
+├── pyproject.toml
+├── tests/
+│   ├── conftest.py
+│   └── test_server.py            ← 30 unit tests (98% coverage)
+└── .github/workflows/
+    └── deploy-on-tag.yml         ← CI: test → deploy on tag push
 ```
 
 ---
 
-## ⚙️ Setup
+## 🛠️ MCP Tools
 
-### Step 1: Get your Render Deploy Hook URL
+| Tool | Description | Key Params |
+|------|-------------|------------|
+| `search_web` | General web search | `query`, `max_results`, `region`, `safe_search` |
+| `search_news` | Latest news articles | `query`, `max_results`, `time_filter` (d/w/m) |
+| `search_images` | Image search | `query`, `size`, `color` |
+| `search_videos` | Video search | `query`, `duration` (short/medium/long) |
 
-1. Go to your **Render Dashboard** → Select your service
-2. Navigate to **Settings** → **Deploy Hook**
-3. Copy the deploy hook URL  
-   *(looks like: `https://api.render.com/deploy/srv-xxxx?key=yyyy`)*
+---
 
-### Step 2: Add the secret to GitHub
+## 🚀 How the CI/CD Works
 
-1. Go to your GitHub repo → **Settings** → **Secrets and variables** → **Actions**
-2. Click **"New repository secret"**
-3. Name: `RENDER_DEPLOY_HOOK_URL`
-4. Value: paste your Render deploy hook URL
-5. Click **Add secret**
+```
+Push tag v1.0.0
+     ↓
+GitHub Actions: run unit tests (Python 3.11 + 3.12)
+     ↓ (only if tests pass)
+Render Deploy Hook triggered
+     ↓
+Render pulls latest code → builds → starts server ✅
+```
 
-### Step 3: Create & push a tag to deploy
+---
+
+## ⚙️ Render Setup (One-time)
+
+### Step 1 — Create the service on Render
+
+1. Go to [render.com](https://render.com) → **New** → **Web Service**
+2. Connect your GitHub repo: `soldierboyfather-cpu/duckduckgo_mcp`
+3. Render auto-detects `render.yaml` — confirm settings:
+
+| Setting | Value |
+|---------|-------|
+| **Name** | `duckduckgo-mcp` |
+| **Runtime** | `Python 3` |
+| **Build Command** | `pip install -r requirements.txt` |
+| **Start Command** | `python server.py` |
+| **Plan** | Free |
+| **Auto-Deploy** | ❌ Off (we deploy via GitHub Actions only) |
+
+4. Click **Create Web Service**
+
+---
+
+### Step 2 — Get the Deploy Hook URL
+
+1. In Render Dashboard → your service → **Settings**
+2. Scroll to **Deploy Hook** section
+3. Click **Generate Deploy Hook**
+4. Copy the URL — looks like:
+   ```
+   https://api.render.com/deploy/srv-xxxxxxxx?key=yyyyyy
+   ```
+
+---
+
+### Step 3 — Add Deploy Hook to GitHub Secrets
+
+1. GitHub repo → **Settings** → **Secrets and variables** → **Actions**
+2. Click **New repository secret**
+3. Set:
+   - **Name**: `RENDER_DEPLOY_HOOK_URL`
+   - **Value**: paste the Render hook URL
+4. Click **Add secret**
+
+---
+
+## 🏷️ Deploy a New Version
 
 ```bash
-# Create a tag on your current branch
+# Create and push a version tag → triggers CI → deploys to Render
 git tag v1.0.0
-
-# Push the tag to GitHub (triggers deployment)
 git push origin v1.0.0
 ```
 
----
+### Tag naming convention
 
-## 🏷️ Tag Naming Convention
-
-| Tag Pattern | Example | Use Case |
-|-------------|---------|----------|
-| `v*.*.*`    | `v1.0.0` | Production release |
-| `v*.*.*-beta` | `v1.0.0-beta` | Beta release |
-| `v*.*.*-rc*`  | `v1.0.0-rc1` | Release candidate |
-
-All of the above trigger the workflow automatically.
+| Tag | Use case |
+|-----|----------|
+| `v1.0.0` | Production release |
+| `v1.0.0-beta` | Beta / staging |
+| `v1.0.0-rc1` | Release candidate |
 
 ---
 
-## 📋 Workflow Logs
+## 🧪 Running Tests Locally
 
-After pushing a tag:
-1. Go to your GitHub repo → **Actions** tab
-2. Click on the latest **"Deploy to Render on Tag"** run
-3. View step-by-step logs and the deployment summary
+```bash
+# Unit tests only (fast, no network)
+pytest tests/ -m "not integration"
+
+# Live integration tests (hits real DuckDuckGo API)
+pytest tests/ -m integration -v
+
+# With coverage report
+pytest tests/ -m "not integration" --cov=server --cov-report=term-missing
+```
 
 ---
 
-## 🔐 Required GitHub PAT Scopes (for MCP testing)
+## 🖥️ Running Locally as MCP Server
+
+```bash
+pip install -r requirements.txt
+
+# stdio mode (for MCP clients like Claude Desktop)
+python server.py
+
+# HTTP mode (for testing the Render transport locally)
+PORT=8000 python server.py
+# → Server available at http://localhost:8000/mcp
+```
+
+### Claude Desktop config (`claude_desktop_config.json`)
+```json
+{
+  "mcpServers": {
+    "duckduckgo": {
+      "command": "python",
+      "args": ["D:/workspace/duckduckgo_search/server.py"]
+    }
+  }
+}
+```
+
+---
+
+## 🔐 Required GitHub PAT Scopes
 
 | Scope | Purpose |
 |-------|---------|
-| `repo` | Push tags, read repo |
-| `workflow` | Trigger & view workflow runs |
+| `repo` | Push tags, read commits |
+| `workflow` | Trigger & view GitHub Actions |

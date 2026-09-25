@@ -1,8 +1,14 @@
 """
 DuckDuckGo Search MCP Server
 Provides web, news, and image search tools via the MCP protocol.
+
+Transports:
+  - Local dev / stdio MCP client : python server.py
+  - Render / HTTP deployment     : PORT env var is set automatically by Render,
+                                   uses streamable-http transport on 0.0.0.0
 """
 
+import os
 from fastmcp import FastMCP
 from duckduckgo_search import DDGS
 from typing import Optional
@@ -185,4 +191,10 @@ def search_videos(
 
 
 if __name__ == "__main__":
-    mcp.run()
+    port = os.environ.get("PORT")
+    if port:
+        # Running on Render (or any cloud): use HTTP transport
+        mcp.run(transport="streamable-http", host="0.0.0.0", port=int(port))
+    else:
+        # Running locally: use stdio (standard MCP client mode)
+        mcp.run(transport="stdio")
