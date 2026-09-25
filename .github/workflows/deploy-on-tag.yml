@@ -1,47 +1,100 @@
-name: Deploy to Render on Tag
+name: CI — Test & Deploy on Tag
 
 on:
   push:
+    branches: [ "main" ]
     tags:
-      - 'v*'        # Triggers on any tag like v1.0.0, v2.1.3, v1.0.0-beta
+      - 'v*'
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
-  deploy:
-    name: Trigger Render Deployment
+  # ─────────────────────────────────────────────
+  # Job 1: Run tests on every push/PR
+  # ─────────────────────────────────────────────
+  test:
+    name: Run Unit Tests
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Extract tag info
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run unit tests with coverage
+        run: |
+          pytest tests/ -v \
+            -m "not integration" \
+            --cov=server \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --tb=short
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-py${{ matrix.python-version }}
+          path: coverage.xml
+
+      - name: Post test summary
+        if: always()
+        run: |
+          echo "## 🧪 Test Results — Python ${{ matrix.python-version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All unit tests completed. See coverage report in artifacts." >> $GITHUB_STEP_SUMMARY
+
+  # ─────────────────────────────────────────────
+  # Job 2: Deploy to Render when a tag is pushed
+  # ─────────────────────────────────────────────
+  deploy:
+    name: Deploy to Render
+    runs-on: ubuntu-latest
+    needs: test                  # Only deploy if tests pass
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract tag and branch info
         id: tag_info
         run: |
           TAG_NAME="${GITHUB_REF#refs/tags/}"
-          BRANCH=$(git branch -r --contains "$GITHUB_SHA" | grep -v HEAD | head -1 | sed 's/  origin\///')
+          BRANCH=$(git branch -r --contains "$GITHUB_SHA" | grep -v HEAD | head -1 | sed 's/  origin\///' || echo "unknown")
           echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
           echo "branch=$BRANCH" >> $GITHUB_OUTPUT
-          echo "commit=$GITHUB_SHA" >> $GITHUB_OUTPUT
+          echo "commit=${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
           echo "::notice::Deploying tag $TAG_NAME from branch $BRANCH"
 
-      - name: Trigger Render Deploy
+      - name: Trigger Render Deploy Hook
         id: render_deploy
         run: |
           echo "🚀 Triggering Render deployment for tag: ${{ steps.tag_info.outputs.tag }}"
-          
+
           RESPONSE=$(curl -s -w "\n%{http_code}" \
             --request POST \
             "${{ secrets.RENDER_DEPLOY_HOOK_URL }}")
-          
+
           HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
           BODY=$(echo "$RESPONSE" | head -n -1)
-          
-          echo "Response: $BODY"
+
           echo "HTTP Status: $HTTP_STATUS"
-          
+          echo "Response: $BODY"
+
           if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
             echo "✅ Render deployment triggered successfully!"
-            echo "deploy_id=$(echo $BODY | python3 -c "import sys,json; print(json.load(sys.stdin).get('id','N/A'))" 2>/dev/null || echo 'N/A')" >> $GITHUB_OUTPUT
           else
             echo "❌ Failed to trigger Render deployment. HTTP $HTTP_STATUS"
             exit 1
@@ -52,16 +105,15 @@ jobs:
         run: |
           echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Field       | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| **Tag**     | \`${{ steps.tag_info.outputs.tag }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Branch**  | \`${{ steps.tag_info.outputs.branch }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Commit**  | \`${{ steps.tag_info.outputs.commit }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Status**  | ✅ Triggered |" >> $GITHUB_STEP_SUMMARY
+          echo "| Field      | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|------------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Tag**    | \`${{ steps.tag_info.outputs.tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Branch** | \`${{ steps.tag_info.outputs.branch }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Commit** | \`${{ steps.tag_info.outputs.commit }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Status** | ✅ Triggered |" >> $GITHUB_STEP_SUMMARY
 
       - name: Notify on failure
         if: failure()
         run: |
           echo "## ❌ Deployment Failed" >> $GITHUB_STEP_SUMMARY
           echo "Tag \`${{ steps.tag_info.outputs.tag }}\` failed to trigger Render deployment." >> $GITHUB_STEP_SUMMARY
-          echo "Check the **RENDER_DEPLOY_HOOK_URL** secret is correctly set in your repository settings." >> $GITHUB_STEP_SUMMARY
