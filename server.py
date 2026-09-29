@@ -8,7 +8,8 @@ Transports:
                                    uses streamable-http transport on 0.0.0.0
 """
 
-import os
+import o
+s
 from fastmcp import FastMCP
 from duckduckgo_search import DDGS
 from typing import Optional
