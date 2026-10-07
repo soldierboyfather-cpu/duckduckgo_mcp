@@ -1,4 +1,9 @@
-"""
+import ddgs
+
+def search_maps(query):
+    return ddgs.maps(query)
+
+# Existing content from """
 DuckDuckGo Search MCP Server
 Provides web, news, and image search tools via the MCP protocol.
 
@@ -204,4 +209,4 @@ if __name__ == "__main__":
 @mcp.tool()
 def search_maps(query: str) -> str:
     """Search for locations on maps."""
-    return f"Searching maps for: {query}"
+    return f"Searching maps for: {query}" would be appended here
