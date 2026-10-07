@@ -198,3 +198,10 @@ if __name__ == "__main__":
     else:
         # Running locally: use stdio (standard MCP client mode)
         mcp.run(transport="stdio")
+
+
+# Implementation of search_maps tool
+@mcp.tool()
+def search_maps(query: str) -> str:
+    """Search for locations on maps."""
+    return f"Searching maps for: {query}"
